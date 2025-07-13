@@ -1,6 +1,6 @@
 # Vibe4D for Blender
 
-**Ultimate Blender AI Assistant**
+**The Ultimate Blender AI Assistant**
 
 ![prompts](docs/media/main.gif)
 
