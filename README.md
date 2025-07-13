@@ -4,20 +4,21 @@
 
 ![prompts](docs/media/main.gif)
 
+## Features
 
-## Blender in natural language
+### Blender in natural language
 ![prompts](docs/media/1.gif)
 
-## Get Guides and Help
+### Get Guides and Help
 ![guide](docs/media/2.gif)
 
-## Automate Routine Tasks
+### Automate Routine Tasks
 ![automate](docs/media/3.gif)
 
-## Knows your scene
+### Knows your scene
 ![scene](docs/media/4.gif)
 
-## Customize
+### Customize
 ![customize](docs/media/5.gif)
 
 
