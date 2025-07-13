@@ -1,0 +1,50 @@
+[
+  {
+    "token": "ui_bg_primary",
+    "hex": "#545454",
+    "theme_path": "user_interface.wcol_regular.inner",
+    "description": "Main widget background (buttons, toggles)"
+  },
+  {
+    "token": "ui_bg_panel",
+    "hex": "#1D1D1D",
+    "theme_path": "user_interface.wcol_box.inner",
+    "description": "Panel/box background"
+  },
+  {
+    "token": "ui_bg_selected",
+    "hex": "#4772B3",
+    "theme_path": "user_interface.wcol_menu.inner_sel",
+    "description": "Selected/highlight/active background"
+  },
+  {
+    "token": "ui_border",
+    "hex": "#3D3D3D",
+    "theme_path": "user_interface.wcol_regular.outline",
+    "description": "Widget border"
+  },
+  {
+    "token": "ui_text",
+    "hex": "#E6E6E6",
+    "theme_path": "user_interface.wcol_regular.text",
+    "description": "Main text color"
+  },
+  {
+    "token": "ui_text_selected",
+    "hex": "#FFFFFF",
+    "theme_path": "user_interface.wcol_regular.text_sel",
+    "description": "Selected text/active field text"
+  },
+  {
+    "token": "ui_text_muted",
+    "hex": "#999999",
+    "theme_path": "user_interface.wcol_menu_back.text",
+    "description": "Muted/disabled text"
+  },
+  {
+    "token": "ui_menu_bg",
+    "hex": "#282828",
+    "theme_path": "user_interface.wcol_menu.inner",
+    "description": "Menu, dropdown, popup background"
+  }
+]
