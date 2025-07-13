@@ -1,3 +1,5 @@
-# Vibe4D
+# Vibe4D for Blender
 
-Blender AI addon
+Ultimate Blender AI addon
+
+TODO: write proper readme =)
