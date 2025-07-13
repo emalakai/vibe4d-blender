@@ -4,7 +4,6 @@
 
 ![prompts](docs/media/main.gif)
 
----
 
 ## Blender in natural language
 ![prompts](docs/media/1.gif)
@@ -21,7 +20,7 @@
 ## Customize
 ![customize](docs/media/5.gif)
 
----
+
 
 ## Getting Started
 ![auth](docs/media/6.gif)
@@ -36,10 +35,8 @@
 3. **Activate:**
    * Enter your license key in the auth window
 
-> **Note:**
-> Requires **Blender 4.4** or later.
+> Requires **Blender 4.4** or later
 
----
 
 ## Contact
 
