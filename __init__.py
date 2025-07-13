@@ -6,11 +6,11 @@ This addon provides AI-powered code generation and assistance for Blender.
 
 bl_info ={
 "name":"Vibe4D",
-"author":"Vibe4D Team",
+"author":"Emalakai",
 "version":(0 ,1 ,0 ),
 "blender":(4 ,4 ,0 ),
 "location":"View3D > Sidebar > Vibe4D",
-"description":"AI-powered Blender addon for code generation and assistance",
+"description":"Ultimate Blender AI Assistant",
 "warning":"",
 "doc_url":"",
 "category":"Development",
