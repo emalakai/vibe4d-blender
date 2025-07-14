@@ -24,7 +24,6 @@ It adds a custom UI panel in the left with the AI chat. (UI is drawing with gpu 
 ![customize](docs/media/5.gif)
 
 
-
 ## Getting Started
 ![auth](docs/media/6.gif)
 
@@ -40,6 +39,8 @@ It adds a custom UI panel in the left with the AI chat. (UI is drawing with gpu 
 
 > Requires **Blender 4.4** or later
 
+## Use of local models
+TODO
 
 ## Contact
 
