@@ -2,26 +2,12 @@
 
 **The Ultimate Blender AI Assistant**
 
-It adds a custom UI panel in the left with the AI chat. (UI is drawing with gpu module)
+It adds a custom UI panel in the left with the AI chat. 
+
+- Custom UI uses `gpu` module.
+- Implements SQL-like query tool `vibe4d.query(query)` that allows AI to get scene data in required format.
 
 ![prompts](docs/media/main.gif)
-
-## Features
-
-### Blender in natural language
-![prompts](docs/media/1.gif)
-
-### Get Guides and Help
-![guide](docs/media/2.gif)
-
-### Automate Routine Tasks
-![automate](docs/media/3.gif)
-
-### Knows your scene
-![scene](docs/media/4.gif)
-
-### Customize
-![customize](docs/media/5.gif)
 
 
 ## Getting Started
@@ -39,8 +25,8 @@ It adds a custom UI panel in the left with the AI chat. (UI is drawing with gpu 
 
 > Requires **Blender 4.4** or later
 
-## Use of local models
-TODO
+## Use of local LLMs
+TODO.
 
 ## Contact
 
