@@ -786,7 +786,7 @@ class TextInput (UIComponent ):
         return False 
 
     def _mark_dirty (self ):
-        """Mark component as needing re-render and update auto-resize."""
+        """Mark component as needing re-render and update auto-resize - OPTIMIZED."""
 
 
         self ._render_dirty =True 
@@ -802,7 +802,17 @@ class TextInput (UIComponent ):
 
 
         if self .ui_state and self .ui_state .target_area :
-            self .ui_state .target_area .tag_redraw ()
+
+            try :
+                from ..manager import ui_manager 
+                if ui_manager and hasattr (ui_manager ,'_selective_redraw'):
+                    ui_manager ._selective_redraw ()
+                else :
+
+                    self .ui_state .target_area .tag_redraw ()
+            except ImportError :
+
+                self .ui_state .target_area .tag_redraw ()
 
     def _insert_text (self ,text :str ):
         """Insert text at cursor position, handling newlines."""

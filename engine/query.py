@@ -1733,7 +1733,8 @@ class SceneQueryEngine :
 
     def get_llm_friendly_schema_summary (self ,context )->str :
         """
-        Get a text summary of all tables optimized for LLM consumption.
+        Get a lightweight text summary of all tables optimized for LLM consumption.
+        This version doesn't load actual table data to avoid performance issues on large scenes.
         
         Args:
             context: Blender context
@@ -1742,11 +1743,6 @@ class SceneQueryEngine :
             LLM-friendly text summary of database schema with examples
         """
         try :
-            schema_data =self .get_comprehensive_schema (context ,format_type ="json")
-
-            if schema_data ["status"]!="success":
-                return f"Error getting schema: {schema_data.get('error', 'Unknown error')}"
-
             lines =[]
 
             lines .append ("# Scene Context")
@@ -1765,18 +1761,16 @@ class SceneQueryEngine :
 
             except Exception as e :
                 print (f"Error getting scene context: {e}")
-                lines .append (f"{schema_data['total_tables']} tables, {schema_data['total_elements']} elements")
+                lines .append (f"{len(self.available_tables)} tables available")
 
             lines .append ("")
             lines .append ("## Available Tables")
 
-            for table in schema_data ["tables"]:
-                if "error"in table :
-                    continue 
-                if table ["name"]=='tables':
-                    continue 
 
-                lines .append (f"- {table['name']}")
+            for table_name ,description in self .available_tables .items ():
+                if table_name =='tables':
+                    continue 
+                lines .append (f"- **{table_name}**: {description}")
 
             lines .append ("")
             lines .append ("## Query Examples")
@@ -1828,6 +1822,7 @@ class SceneQueryEngine :
             lines .append ("- Always start with exploration of table structure")
             lines .append ("- Node properties are nested JSON - access with `properties` field")
             lines .append ("- Use `LIMIT` for large datasets, `WHERE` for focused queries")
+            lines .append ("- Use `SELECT * FROM table_name LIMIT 3` to see available fields")
 
             return "\n".join (lines )
 
@@ -3646,6 +3641,89 @@ class SceneQueryEngine :
             extract_custom_props (light ,light .name ,'LIGHT')
 
         return custom_props_data 
+
+    def get_lightweight_table_counts (self ,context )->Dict [str ,Any ]:
+        """
+        Get basic table counts without loading all table data.
+        Much faster than get_all_table_counts for large scenes.
+        
+        Args:
+            context: Blender context
+            
+        Returns:
+            Dictionary with basic counts for major tables
+        """
+        try :
+            counts ={}
+            total_elements =0 
+
+
+            counts ['objects']=len (context .scene .objects )
+            counts ['materials']=len (bpy .data .materials )
+            counts ['meshes']=len (bpy .data .meshes )
+            counts ['lights']=len (bpy .data .lights )
+            counts ['cameras']=len (bpy .data .cameras )
+            counts ['collections']=len (bpy .data .collections )
+            counts ['scenes']=len (bpy .data .scenes )
+            counts ['worlds']=len (bpy .data .worlds )
+            counts ['images']=len (bpy .data .images )
+            counts ['textures']=len (bpy .data .textures )
+            counts ['node_groups']=len (bpy .data .node_groups )
+            counts ['tables']=len (self .available_tables )
+
+
+            node_count =0 
+            for material in bpy .data .materials :
+                if material .use_nodes and material .node_tree :
+                    node_count +=len (material .node_tree .nodes )
+            for world in bpy .data .worlds :
+                if world .use_nodes and world .node_tree :
+                    node_count +=len (world .node_tree .nodes )
+            for scene in bpy .data .scenes :
+                if scene .use_nodes and scene .node_tree :
+                    node_count +=len (scene .node_tree .nodes )
+            for node_group in bpy .data .node_groups :
+                node_count +=len (node_group .nodes )
+            for obj in bpy .data .objects :
+                for modifier in obj .modifiers :
+                    if modifier .type =='NODES'and modifier .node_group :
+                        node_count +=len (modifier .node_group .nodes )
+
+            counts ['nodes']=node_count 
+            counts ['shader_nodes']=node_count 
+            counts ['geometry_nodes']=0 
+            counts ['compositor_nodes']=0 
+
+
+            modifier_count =sum (len (obj .modifiers )for obj in bpy .data .objects )
+            counts ['modifiers']=modifier_count 
+
+
+            animation_count =0 
+            for obj in bpy .data .objects :
+                if obj .animation_data and obj .animation_data .action :
+                    animation_count +=len (obj .animation_data .action .fcurves )
+            counts ['animations']=animation_count 
+
+
+            total_elements =sum (counts .values ())
+
+            return {
+            "status":"success",
+            "table_counts":counts ,
+            "total_tables":len (self .available_tables ),
+            "total_elements":total_elements ,
+            "method":"lightweight"
+            }
+
+        except Exception as e :
+            return {
+            "status":"error",
+            "error":f"Failed to get lightweight table counts: {str(e)}",
+            "table_counts":{},
+            "total_tables":0 ,
+            "total_elements":0 
+            }
 
 
 

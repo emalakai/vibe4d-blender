@@ -625,6 +625,19 @@ class ImprovedUIFactory :
 
         try :
 
+            from .manager import ui_manager 
+            if hasattr (ui_manager ,'_conversation_tracking')and ui_manager ._conversation_tracking :
+                if not ui_manager ._conversation_tracking .get ('conversation_saved',False ):
+                    try :
+
+                        logger .info ("Saving conversation data before stopping generation")
+                        ui_manager ._save_conversation_to_history ()
+                        logger .info ("✅ Conversation data saved successfully before stop")
+                    except Exception as save_error :
+                        logger .error (f"Failed to save conversation data before stop: {str(save_error)}")
+
+
+
             from ...api .websocket_client import llm_websocket_client 
 
 
@@ -632,11 +645,9 @@ class ImprovedUIFactory :
             logger .info ("WebSocket connection closed to cancel generation")
 
 
-
-            from .manager import ui_manager 
             if hasattr (ui_manager ,'_reset_generation_state'):
                 ui_manager ._reset_generation_state ()
-                logger .info ("UI manager generation state reset")
+                logger .info ("UI manager generation state reset after saving conversation")
 
         except Exception as e :
             logger .error (f"Error stopping generation: {e}")

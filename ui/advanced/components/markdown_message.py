@@ -363,6 +363,12 @@ class SimpleMarkdownRenderer :
         block_text_lower =block_text .lower ()
 
 
+        if 'rendering scene'in block_text_lower or 'render captured'in block_text_lower :
+            return 'render_capture'
+        elif 'render failed'in block_text_lower or 'render error'in block_text_lower :
+            return 'render_capture'
+
+
         if 'reading scene'in block_text_lower or 'scene read'in block_text_lower :
             return 'reading'
         elif 'analyzing scene'in block_text_lower or 'scene analyzed'in block_text_lower :

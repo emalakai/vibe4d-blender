@@ -36,6 +36,13 @@ class VIBE4D_OT_ui_modal_handler (Operator ):
             return {'CANCELLED'}
 
 
+        if (hasattr (ui_manager ,'_original_workspace')and hasattr (ui_manager ,'_original_screen')and 
+        (context .window .workspace !=ui_manager ._original_workspace or 
+        context .window .screen !=ui_manager ._original_screen )):
+
+            return {'PASS_THROUGH'}
+
+
         self ._handle_cursor_updates (context ,ui_manager ,event )
 
 

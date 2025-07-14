@@ -416,7 +416,7 @@ class UIStateManager :
         return neighbors 
 
     def _configure_ui_viewport (self ,area ,config :ViewportConfig ):
-        """Configure viewport for UI display."""
+        """Configure viewport for UI display with enhanced Blender 4.4 optimizations."""
         try :
             for space in area .spaces :
                 if space .type =='VIEW_3D':
@@ -436,11 +436,43 @@ class UIStateManager :
                     space .shading .show_object_outline =False 
                     space .shading .show_specular_highlight =False 
                     space .shading .show_backface_culling =True 
+                    space .shading .use_world_space_lighting =False 
+
+
+                    if hasattr (space .shading ,'show_cavity_edge'):
+                        space .shading .show_cavity_edge =False 
+                    if hasattr (space .shading ,'show_cavity_ridge'):
+                        space .shading .show_cavity_ridge =False 
+                    if hasattr (space .shading ,'show_cavity_valley'):
+                        space .shading .show_cavity_valley =False 
+
+
+                    if hasattr (space ,'show_region_tool_header'):
+                        space .show_region_tool_header =False 
+                    if hasattr (space ,'show_region_asset_shelf'):
+                        space .show_region_asset_shelf =False 
+
+
+                    space .shading .use_dof =False 
+                    if hasattr (space .shading ,'use_world_space_lighting'):
+                        space .shading .use_world_space_lighting =False 
 
 
                     space .lens =50 
                     space .clip_start =0.1 
                     space .clip_end =100 
+
+
+                    if hasattr (space ,'use_local_collections'):
+
+                        pass 
+
+
+                    if hasattr (space .shading ,'light'):
+                        space .shading .light ='FLAT'
+                    if hasattr (space .shading ,'color_type'):
+                        space .shading .color_type ='SINGLE'
+
                     break 
 
         except Exception as e :

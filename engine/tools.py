@@ -18,6 +18,7 @@ import base64
 import array 
 import tempfile 
 import os 
+import time 
 from typing import Dict ,Any ,List ,Optional ,Tuple 
 from mathutils import Vector ,Matrix ,Euler ,Quaternion ,Color 
 
@@ -267,20 +268,67 @@ class ToolsManager :
             return False ,f"Viewport capture failed: {str(e)}"
 
     def _see_render_tool (self ,arguments :Dict [str ,Any ],context )->Tuple [bool ,Any ]:
-        """Render current scene with active camera and return as base64 data URI."""
+        """Render the current scene and return the final result when complete."""
         try :
-            logger .info ("Starting render with active camera")
+            logger .info ("Starting synchronous render with user control")
 
 
-            result_data =render_manager .render_sync ()
+            scene_name =arguments .get ("scene_name",None )
+            camera_name =arguments .get ("camera_name",None )
+
+
+            from ..ui .advanced .manager import ui_manager 
+
+
+            if hasattr (ui_manager ,'_send_render_status_block'):
+                ui_manager ._send_render_status_block ("[Checking for existing render...]")
+
+
+            scene =bpy .data .scenes .get (scene_name )if scene_name else context .scene 
+            camera =scene .camera 
+            if camera_name :
+                camera =bpy .data .objects .get (camera_name )
+
+            existing_result =render_manager ._get_existing_render_result (scene ,camera )
+            if existing_result :
+                logger .info ("Found existing render result, returning it")
+                if hasattr (ui_manager ,'_send_render_status_block'):
+                    ui_manager ._send_render_status_block ("[Using existing render]")
+                return True ,{"result":existing_result }
+
+
+            if hasattr (ui_manager ,'_send_render_status_block'):
+                ui_manager ._send_render_status_block ("[Rendering scene]")
+
+
+            result_data =render_manager .render_sync (
+            scene_name =scene_name ,
+            camera_name =camera_name ,
+            output_path =None 
+            )
+
+
+            if hasattr (ui_manager ,'_send_render_status_block'):
+                ui_manager ._send_render_status_block ("[Render captured]")
+
+            logger .info (f"Synchronous render completed successfully")
 
 
             return True ,{"result":result_data }
 
         except Exception as e :
-            logger .error (f"Render tool failed: {str(e)}")
+            logger .error (f"Synchronous render tool failed: {str(e)}")
             import traceback 
             logger .error (f"Full traceback: {traceback.format_exc()}")
+
+
+            try :
+                from ..ui .advanced .manager import ui_manager 
+                if hasattr (ui_manager ,'_send_render_status_block'):
+                    ui_manager ._send_render_status_block (f"[Render failed: {str(e)}]")
+            except :
+                pass 
+
             return False ,{"result":f"Render failed: {str(e)}"}
 
     def _render_async_tool (self ,arguments :Dict [str ,Any ],context )->Tuple [bool ,Any ]:
@@ -318,12 +366,25 @@ class ToolsManager :
             if not render_id :
                 return False ,{"result":"Failed to start render"}
 
+
+            if completion_data .get ('completed'):
+                result_data =completion_data ['result']
+                return True ,{
+                "result":{
+                **result_data ,
+                "status":"completed",
+                "message":f"Used existing render result with ID: {render_id}",
+                "used_existing":True 
+                }
+                }
+
             result_data ={
             "render_id":render_id ,
             "status":"started",
             "message":f"Async render started with ID: {render_id}",
             "scene_name":scene_name or context .scene .name ,
-            "camera_name":camera_name or (context .scene .camera .name if context .scene .camera else None )
+            "camera_name":camera_name or (context .scene .camera .name if context .scene .camera else None ),
+            "used_existing":False 
             }
 
             return True ,{"result":result_data }

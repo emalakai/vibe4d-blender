@@ -124,6 +124,49 @@ class LLMWebSocketClient :
         self ._response_timeout =300 
         self ._pending_tool_calls ={}
         self ._last_progress_content_length =0 
+        self ._is_connected =False 
+        self ._is_connecting =False 
+
+    def _reset_connection_state (self ):
+        """Reset the WebSocket connection state."""
+        logger .info ("Resetting WebSocket connection state")
+        self .ws =None 
+        self ._is_connected =False 
+        self ._is_connecting =False 
+
+
+    def _is_connection_valid (self )->bool :
+        """Check if the current WebSocket connection is valid and can send messages."""
+        if not self .ws :
+            return False 
+
+
+        if not hasattr (self .ws ,'sock'):
+            return False 
+
+
+        if not self .ws .sock or not hasattr (self .ws .sock ,'sock'):
+            return False 
+
+
+        if not self ._is_connected :
+            return False 
+
+        return True 
+
+    def can_send_message (self )->bool :
+        """
+        Check if the client is ready to send a new message.
+        This is the method UI should call before attempting to send.
+        """
+        return not self ._is_connecting and self ._is_connection_valid ()
+
+    def is_ready_for_new_request (self )->bool :
+        """
+        Check if the client is ready for a completely new request.
+        Returns True if no active connections or operations are in progress.
+        """
+        return not self ._is_connecting and not self ._is_connected 
 
     def send_prompt_request (
     self ,
@@ -145,7 +188,23 @@ class LLMWebSocketClient :
             True if connection established successfully
         """
         try :
+
+            if self ._is_connecting :
+                logger .warning ("WebSocket connection already in progress")
+                return False 
+
+
+            if self .ws is not None :
+                logger .info ("Closing previous WebSocket connection")
+                try :
+                    self .ws .close ()
+                except Exception as e :
+                    logger .debug (f"Error closing previous connection: {e}")
+                finally :
+                    self ._reset_connection_state ()
+
             logger .info ("Connecting to LLM WebSocket API")
+            self ._is_connecting =True 
 
 
             self .on_progress_callback =on_progress 
@@ -178,6 +237,7 @@ class LLMWebSocketClient :
             return True 
 
         except Exception as e :
+            self ._is_connecting =False 
             logger .error (f"Failed to start WebSocket connection: {str(e)}")
             if self .on_error_callback :
 
@@ -188,6 +248,8 @@ class LLMWebSocketClient :
     def _on_open (self ,ws ):
         """Handle WebSocket connection opened."""
         logger .info ("WebSocket connection established")
+        self ._is_connected =True 
+        self ._is_connecting =False 
 
         try :
 
@@ -197,6 +259,7 @@ class LLMWebSocketClient :
 
         except Exception as e :
             logger .error (f"Failed to send request: {str(e)}")
+            self ._is_connected =False 
             if self .on_error_callback :
 
                 user_friendly_error =_get_user_friendly_websocket_error (f"Failed to send request: {str(e)}")
@@ -522,6 +585,14 @@ class LLMWebSocketClient :
         """Send tool call response back to server."""
         try :
 
+            if not self ._is_connection_valid ():
+                error_msg ="Cannot send tool call response: WebSocket connection is not available"
+                logger .error (error_msg )
+                if self .on_error_callback :
+                    self .on_error_callback (error_msg )
+                return 
+
+
             if not isinstance (result ,dict ):
                 result ={"status":"error","result":str (result )}
 
@@ -531,10 +602,13 @@ class LLMWebSocketClient :
 
             response_data ={
             "call_id":call_id ,
-            "output":json .dumps (result )
+            "output":json .dumps (result ),
+            "status":result .get ("status","error")
             }
 
             message =json .dumps (response_data )
+
+
             self .ws .send (message )
             logger .debug (f"Sent tool call response: {message}")
 
@@ -548,27 +622,13 @@ class LLMWebSocketClient :
                 logger .warning (f"Tool call response indicates failure: {result}")
 
         except Exception as e :
-            logger .error (f"Failed to send tool call response: {str(e)}")
+            error_msg =f"Failed to send tool call response: {str(e)}"
+            logger .error (error_msg )
 
-
-
-            try :
-                error_response ={
-                "call_id":call_id ,
-                "output":json .dumps ({
-                "status":"error",
-                "result":f"Failed to send tool response: {str(e)}"
-                })
-                }
-
-                error_message =json .dumps (error_response )
-                self .ws .send (error_message )
-                logger .debug (f"Sent error tool call response: {error_message}")
-
-            except Exception as e2 :
-                logger .error (f"Failed to send error tool call response: {str(e2)}")
-
-
+            if "Connection is already closed"in str (e )or "'NoneType' object has no attribute"in str (e ):
+                self ._reset_connection_state ()
+            if self .on_error_callback :
+                self .on_error_callback (error_msg )
 
     def _handle_code_event (self ,data :Dict [str ,Any ]):
         """Handle final code event."""
@@ -738,6 +798,10 @@ class LLMWebSocketClient :
         logger .error (f"WebSocket error: {error_msg}")
 
 
+        self ._is_connected =False 
+        self ._is_connecting =False 
+
+
         user_friendly_error =_get_user_friendly_websocket_error (error_msg )
 
         if self .response :
@@ -749,6 +813,10 @@ class LLMWebSocketClient :
     def _on_close (self ,ws ,close_status_code ,close_msg ):
         """Handle WebSocket connection closed."""
         logger .info (f"WebSocket connection closed: {close_status_code} - {close_msg}")
+
+
+        self ._is_connected =False 
+        self ._is_connecting =False 
 
 
         expected_close =(
@@ -772,16 +840,42 @@ class LLMWebSocketClient :
             return 
 
 
-        if self .response and not expected_close and not self .response .is_complete :
-            error_msg =f"Connection closed unexpectedly: {close_msg or 'Unknown reason'}"
+        if close_status_code ==1006 :
+            logger .warning ("WebSocket closed unexpectedly (abnormal closure) - connection will be reset")
+
+            self ._reset_connection_state ()
 
 
-            user_friendly_error =_get_user_friendly_websocket_error (error_msg )
+        if expected_close and self .response and not self .response .is_complete :
 
-            self .response .error =user_friendly_error 
+            if (self .response .output_content or 
+            self .response .status_messages or 
+            (hasattr (self .response ,'tool_call_completed')and self .response .tool_call_completed )):
 
-            if self .on_error_callback :
-                self .on_error_callback (user_friendly_error )
+                logger .info ("Marking response as complete due to expected close")
+                self .response .is_complete =True 
+
+
+                if self .on_complete_callback :
+                    self .on_complete_callback (self .response )
+                return 
+
+
+        if not expected_close :
+            logger .warning ("WebSocket connection closed unexpectedly")
+            if self .response and not self .response .error :
+
+                if not (self .response .output_content or self .response .status_messages ):
+                    error_msg ="Connection lost unexpectedly"
+                    self .response .error =error_msg 
+                    if self .on_error_callback :
+                        self .on_error_callback (error_msg )
+                else :
+
+                    logger .info ("Had meaningful content despite unexpected close - treating as completion")
+                    self .response .is_complete =True 
+                    if self .on_complete_callback :
+                        self .on_complete_callback (self .response )
 
     def _handle_tool_started_event (self ,data :Dict [str ,Any ]):
         """Handle tool started event for UX."""
@@ -1003,10 +1097,15 @@ class LLMWebSocketClient :
             logger .error (f"Error handling output item done event: {str(e)}")
 
     def close (self ):
-        """Close WebSocket connection."""
+        """Close the WebSocket connection and reset state."""
+        logger .info ("Manually closing WebSocket connection")
         if self .ws :
-            self .ws .close ()
-            self .ws =None 
+            try :
+                self .ws .close ()
+            except Exception as e :
+                logger .debug (f"Error during manual close: {e}")
+            finally :
+                self ._reset_connection_state ()
 
 
 

@@ -256,36 +256,40 @@ def see_viewport (shading_mode :str =None )->Dict [str ,Any ]:
 
 def see_render ()->Dict [str ,Any ]:
     """
-    Render current scene with active camera and current settings, return as base64-encoded PNG image.
+    Render the current scene with active camera and return the final result.
     
-    This function renders the current scene using the active camera and current render settings,
-    capturing the final rendered output exactly as it would appear when manually rendering.
+    This function performs a synchronous render operation that is visible to the user.
+    It waits for the render to complete and returns the final rendered image data.
+    The render progress is shown in the UI while the operation is in progress.
     
     Returns:
-        Dictionary containing:
+        Dictionary containing the final render result:
         - data_uri: Base64-encoded PNG data URI of the rendered image
-        - width: Actual render width in pixels
-        - height: Actual render height in pixels  
+        - width: Image width in pixels
+        - height: Image height in pixels
         - render_resolution: [width, height] array of render settings
-        - render_percentage: Render resolution percentage
+        - render_percentage: Render resolution percentage used
         - size_bytes: Size of PNG data in bytes
         - format: Image format ("PNG")
         - render_engine: Render engine used (e.g., "CYCLES", "EEVEE")
         - camera_name: Name of the camera used for rendering
-        - frame: Current frame number that was rendered
+        - scene_name: Name of the scene that was rendered
+        - frame: Frame number that was rendered
+        - render_time: Time taken to render in seconds
         
     Example:
         >>> import vibe4d
         >>> result = vibe4d.see_render()
-        >>> print(f"Rendered {result['width']}x{result['height']} image using {result['render_engine']}")
-        >>> print(f"Camera: {result['camera_name']}, Frame: {result['frame']}")
+        >>> print(f"Rendered {result['width']}x{result['height']} image")
+        >>> print(f"Render time: {result['render_time']:.2f}s")
+        >>> print(f"Camera: {result['camera_name']}")
         
     Note:
-        - Requires an active camera in the scene
-        - Uses current render settings (resolution, engine, etc.)
-        - Renders at the current frame
-        - Temporarily changes output format to PNG for capture
-        - May take time depending on render complexity and settings
+        - This function blocks until rendering is complete
+        - The render is visible to the user during the process
+        - Progress is shown in the UI while rendering
+        - Returns the complete render result when finished
+        - Use render_async() if you need non-blocking render operations
     """
     try :
         context =_get_context ()
@@ -293,19 +297,13 @@ def see_render ()->Dict [str ,Any ]:
         success ,result =tools_manager .handle_tool_call ("see_render",{},context )
 
         if success :
-
-            render_data =result ["result"]
-            logger .info (f"Render capture completed: {render_data['width']}x{render_data['height']}")
-            return render_data 
+            return result ["result"]
         else :
-            error_msg =f"Render failed: {result['result']}"
-            logger .error (error_msg )
-            raise RuntimeError (error_msg )
+            raise RuntimeError (f"Render failed: {result['result']}")
 
     except Exception as e :
-        error_msg =f"Failed to render scene: {str(e)}"
-        logger .error (error_msg )
-        raise RuntimeError (error_msg )
+        logger .error (f"See render API error: {str(e)}")
+        raise 
 
 
 def render_async (

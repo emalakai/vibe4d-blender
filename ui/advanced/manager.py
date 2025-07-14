@@ -34,6 +34,64 @@ if TYPE_CHECKING :
 logger =logging .getLogger (__name__ )
 
 
+class PerformanceConfig :
+    """Configuration class for UI performance optimization levels."""
+
+
+    CONSERVATIVE ="conservative"
+    BALANCED ="balanced"
+    AGGRESSIVE ="aggressive"
+
+    def __init__ (self ,level :str =CONSERVATIVE ):
+        self .level =level 
+        self ._configure_for_level ()
+
+    def _configure_for_level (self ):
+        """Configure optimization parameters based on performance level."""
+        if self .level ==self .CONSERVATIVE :
+            self .timer_interval =0.1 
+            self .ui_scale_check_interval =1 
+            self .theme_check_interval =3 
+            self .viewport_enforce_interval =0.5 
+            self .animation_fps =30 
+            self .cursor_blink_cycle =1.2 
+            self .enable_selective_redraw =True 
+
+        elif self .level ==self .BALANCED :
+            self .timer_interval =1.0 
+            self .ui_scale_check_interval =5 
+            self .theme_check_interval =10 
+            self .viewport_enforce_interval =3 
+            self .animation_fps =15 
+            self .cursor_blink_cycle =1.5 
+            self .enable_selective_redraw =True 
+
+        elif self .level ==self .AGGRESSIVE :
+            self .timer_interval =2.0 
+            self .ui_scale_check_interval =10 
+            self .theme_check_interval =20 
+            self .viewport_enforce_interval =5 
+            self .animation_fps =10 
+            self .cursor_blink_cycle =2.0 
+            self .enable_selective_redraw =True 
+
+    def get_animation_interval (self )->float :
+        """Get animation frame interval."""
+        return 1.0 /self .animation_fps 
+
+    def should_check_ui_scale (self ,counter :int )->bool :
+        """Check if UI scale should be checked this iteration."""
+        return counter >=self .ui_scale_check_interval 
+
+    def should_check_theme (self ,counter :int )->bool :
+        """Check if theme should be checked this iteration."""
+        return counter >=self .theme_check_interval 
+
+    def should_enforce_viewport (self ,counter :int )->bool :
+        """Check if viewport settings should be enforced."""
+        return counter >=self .viewport_enforce_interval 
+
+
 class UIManager :
     """Main UI manager that orchestrates everything.
     
@@ -60,6 +118,9 @@ class UIManager :
         """Initialize the UI manager."""
         from .ui_factory import ImprovedUIFactory 
         from .layout_manager import layout_manager 
+
+
+        self .performance_config =PerformanceConfig (PerformanceConfig .CONSERVATIVE )
 
 
         self .state =UIState ()
@@ -104,6 +165,9 @@ class UIManager :
         self ._theme_check_counter =0 
 
 
+        self ._viewport_enforce_counter =0 
+
+
         self ._viewport_resize_debounce_delay =0.1 
         self ._pending_viewport_size =None 
 
@@ -146,7 +210,71 @@ class UIManager :
         self ._ui_recreation_in_progress =False 
         self ._ui_recreation_lock_start_time =None 
 
-        logger .info ("UIManager initialized")
+        logger .info ("UIManager initialized with performance optimizations")
+
+    def set_performance_level (self ,level :str ):
+        """Set the performance optimization level."""
+        try :
+            old_level =self .performance_config .level 
+            self .performance_config =PerformanceConfig (level )
+            logger .info (f"Performance level changed from {old_level} to {level}")
+
+
+            if self .cursor_redraw_handler :
+                bpy .app .timers .unregister (self .cursor_redraw_handler )
+                self .cursor_redraw_handler =bpy .app .timers .register (
+                self ._enforce_ui_settings ,
+                first_interval =self .performance_config .timer_interval 
+                )
+                logger .info (f"Restarted UI enforcement timer with {self.performance_config.timer_interval}s interval")
+
+        except Exception as e :
+            logger .error (f"Error setting performance level: {e}")
+
+    def get_performance_level (self )->str :
+        """Get the current performance optimization level."""
+        return self .performance_config .level 
+
+    def get_performance_info (self )->Dict [str ,Any ]:
+        """Get detailed information about current performance settings."""
+        config =self .performance_config 
+        return {
+        'level':config .level ,
+        'timer_interval':config .timer_interval ,
+        'ui_scale_check_interval':config .ui_scale_check_interval ,
+        'theme_check_interval':config .theme_check_interval ,
+        'viewport_enforce_interval':config .viewport_enforce_interval ,
+        'animation_fps':config .animation_fps ,
+        'cursor_blink_cycle':config .cursor_blink_cycle ,
+        'enable_selective_redraw':config .enable_selective_redraw 
+        }
+
+    def apply_aggressive_optimizations (self ):
+        """Apply the most aggressive performance optimizations.
+        
+        Use this when you need maximum performance and can sacrifice some visual fidelity.
+        Suitable for lower-end hardware or when working with very complex scenes.
+        """
+        self .set_performance_level (PerformanceConfig .AGGRESSIVE )
+        logger .info ("Applied aggressive performance optimizations - reduced visual fidelity for better performance")
+
+    def apply_conservative_optimizations (self ):
+        """Apply conservative performance optimizations.
+        
+        Use this for maximum compatibility and visual quality.
+        Suitable for high-end hardware or when visual fidelity is critical.
+        """
+        self .set_performance_level (PerformanceConfig .CONSERVATIVE )
+        logger .info ("Applied conservative performance optimizations - prioritizing visual quality")
+
+    def apply_balanced_optimizations (self ):
+        """Apply balanced performance optimizations (default).
+        
+        Good balance between performance and visual quality.
+        Suitable for most use cases and hardware configurations.
+        """
+        self .set_performance_level (PerformanceConfig .BALANCED )
+        logger .info ("Applied balanced performance optimizations - good balance of performance and quality")
 
     def _create_default_ui (self ):
         """Create the default UI layout using the factory system."""
@@ -344,6 +472,12 @@ class UIManager :
             from ...api .websocket_client import llm_websocket_client 
 
 
+            if not llm_websocket_client .is_ready_for_new_request ():
+                logger .info ("WebSocket client is busy or has active connection, waiting...")
+
+
+
+
             context =bpy .context 
 
 
@@ -377,6 +511,7 @@ class UIManager :
 
 
             self ._websocket_client =llm_websocket_client 
+
 
 
             success =llm_websocket_client .send_prompt_request (
@@ -1088,32 +1223,70 @@ class UIManager :
         bpy .app .timers .register (handle_error ,first_interval =0.0 )
 
     def _reset_generation_state (self ):
-        """Reset generation state and cleanup."""
+        """Reset UI state after generation completion or error."""
         self ._is_generating =False 
-        self ._current_ai_component =None 
         self ._last_content_length =0 
         self ._last_tool_call_state =None 
         self ._content_after_tool_call =False 
-        self ._last_sent_prompt =None 
+        self ._current_ai_component =None 
+        self ._websocket_client =None 
 
 
-        self ._tool_completion_blocks_created .clear ()
-        self ._tool_start_blocks_created .clear ()
+        self ._cleanup_websocket_connection ()
 
-
-        self ._active_tool_components .clear ()
 
         self .factory ._set_send_button_mode (True )
 
 
-        self ._conversation_tracking ={
-        'user_message':None ,
-        'assistant_message_id':None ,
-        'tool_calls':[],
-        'tool_responses':[],
-        'final_content':None ,
-        'conversation_saved':False 
-        }
+        self ._reset_conversation_tracking ()
+
+        if self .state .target_area :
+            self .state .target_area .tag_redraw ()
+
+    def _cleanup_websocket_connection (self ):
+        """Clean up any active WebSocket connections."""
+        try :
+            from ...api .websocket_client import llm_websocket_client 
+
+
+            if not llm_websocket_client .is_ready_for_new_request ():
+                logger .info ("Cleaning up active WebSocket connection")
+                llm_websocket_client .close ()
+
+        except Exception as e :
+            logger .debug (f"Error during WebSocket cleanup: {e}")
+
+    def cleanup (self ):
+        """Clean up resources when UI manager is destroyed."""
+        logger .info ("Cleaning up UI manager resources")
+
+
+        if self ._is_generating :
+
+            if hasattr (self ,'_conversation_tracking')and self ._conversation_tracking :
+                if not self ._conversation_tracking .get ('conversation_saved',False ):
+                    try :
+                        logger .info ("Saving conversation data before UI cleanup")
+                        self ._save_conversation_to_history ()
+                        logger .info ("✅ Conversation data saved successfully before cleanup")
+                    except Exception as save_error :
+                        logger .error (f"Failed to save conversation data before cleanup: {str(save_error)}")
+
+
+
+            self ._reset_generation_state ()
+
+
+        self ._cleanup_websocket_connection ()
+
+
+        if self .components :
+            self .components .clear ()
+
+
+        self .state .reset ()
+
+        logger .info ("UI manager cleanup completed")
 
     def _start_conversation_tracking (self ,user_prompt :str ):
         """Start tracking a new conversation turn."""
@@ -1131,6 +1304,25 @@ class UIManager :
 
         self ._active_tool_components .clear ()
         logger .info (f"Started conversation tracking for: '{user_prompt[:50]}...'")
+
+    def _reset_conversation_tracking (self ):
+        """Reset conversation tracking state."""
+        self ._conversation_tracking ={
+        'user_message':None ,
+        'assistant_message_id':None ,
+        'tool_calls':[],
+        'tool_responses':[],
+        'final_content':None ,
+        'conversation_saved':False 
+        }
+
+        self ._tool_completion_blocks_created .clear ()
+        self ._tool_start_blocks_created .clear ()
+
+        self ._active_tool_components .clear ()
+
+        self ._last_sent_prompt =None 
+        logger .debug ("Reset conversation tracking state")
 
     def _track_assistant_message (self ,message_id :str ,content :str =""):
         """Track assistant message details."""
@@ -1456,6 +1648,10 @@ class UIManager :
             self .state .is_enabled =True 
 
 
+            self ._original_workspace =bpy .context .window .workspace 
+            self ._original_screen =bpy .context .window .screen 
+
+
             self ._current_ui_scale =CoordinateSystem .get_ui_scale ()
             self ._ui_scale_check_counter =0 
 
@@ -1481,8 +1677,8 @@ class UIManager :
 
 
             if self .cursor_redraw_handler is None :
-                self .cursor_redraw_handler =bpy .app .timers .register (self ._enforce_ui_settings ,first_interval =1.0 )
-                logger .info ("UI enforcement timer started")
+                self .cursor_redraw_handler =bpy .app .timers .register (self ._enforce_ui_settings ,first_interval =self .performance_config .timer_interval )
+                logger .info (f"UI enforcement timer started with {self.performance_config.timer_interval}s interval")
 
 
             try :
@@ -1596,6 +1792,12 @@ class UIManager :
         self .state .focused_component =None 
 
 
+        if hasattr (self ,'_original_workspace'):
+            del self ._original_workspace 
+        if hasattr (self ,'_original_screen'):
+            del self ._original_screen 
+
+
         self ._current_ui_scale =None 
         self ._ui_scale_check_counter =0 
 
@@ -1611,40 +1813,6 @@ class UIManager :
 
 
         self ._redraw_viewports ()
-
-    def cleanup (self ):
-        """Clean up all resources."""
-
-
-        self .disable_overlay ()
-
-
-        if self ._resize_timer is not None :
-            try :
-                bpy .app .timers .unregister (self ._resize_timer )
-            except :
-                pass 
-            self ._resize_timer =None 
-            self ._pending_viewport_size =None 
-
-
-        if hasattr (self ,'_animation_timer'):
-            try :
-                bpy .app .timers .unregister (self ._animation_timer )
-            except :
-                pass 
-            del self ._animation_timer 
-
-
-        self .state .components .clear ()
-        self .components .clear ()
-
-
-        if self .ui_layout :
-            self .ui_layout .clear ()
-            self .ui_layout =None 
-
-        logger .info ("UI manager cleanup complete")
 
     def _draw_callback (self ):
         """Main draw callback with optimized rendering."""
@@ -1805,22 +1973,48 @@ class UIManager :
             logger .error (f"Error drawing error message: {e}")
 
     def _schedule_animation_redraw (self ):
-        """Schedule redraw for animations."""
+        """Schedule redraw for animations - OPTIMIZED."""
         import time 
         current_time =time .time ()
 
 
-        animation_interval =1.0 /30.0 
+        animation_interval =self .performance_config .get_animation_interval ()
 
 
         if not hasattr (self ,'_animation_timer'):
-            self ._animation_timer =bpy .app .timers .register (
-            lambda :self ._animation_redraw_callback (),
-            first_interval =animation_interval 
-            )
+
+            has_active_animations =self ._check_for_active_animations ()
+            if has_active_animations :
+                self ._animation_timer =bpy .app .timers .register (
+                lambda :self ._animation_redraw_callback (),
+                first_interval =animation_interval 
+                )
+
+    def _check_for_active_animations (self )->bool :
+        """Check if there are actually active animations before scheduling timer."""
+        try :
+            if not self .state .components :
+                return False 
+
+            visible_components =[c for c in self .state .components if c .is_visible ()]
+
+            for component in visible_components :
+
+                if hasattr (component ,'elements'):
+                    for element in component .elements :
+                        if hasattr (element ,'is_animated')and element .is_animated :
+                            return True 
+
+
+                if hasattr (component ,'is_animated')and component .is_animated :
+                    return True 
+
+            return False 
+        except Exception :
+            return False 
 
     def _animation_redraw_callback (self ):
-        """Timer callback for animation redraw."""
+        """Timer callback for animation redraw - OPTIMIZED."""
         try :
 
             if hasattr (self ,'_animation_timer'):
@@ -1834,25 +2028,13 @@ class UIManager :
 
             if self .state .is_enabled and self .state .target_area :
 
-                has_animations =False 
-                visible_components =[c for c in self .state .components if c .is_visible ()]
-
-                for component in visible_components :
-
-                    if hasattr (component ,'elements'):
-                        for element in component .elements :
-                            if hasattr (element ,'is_animated')and element .is_animated :
-                                has_animations =True 
-                                break 
-
-
-                    if hasattr (component ,'is_animated')and component .is_animated :
-                        has_animations =True 
+                has_animations =self ._check_for_active_animations ()
 
                 if has_animations :
-                    self .state .target_area .tag_redraw ()
 
-                    return 1.0 /30.0 
+                    self ._selective_redraw ()
+
+                    return self .performance_config .get_animation_interval ()
 
             return None 
         except Exception as e :
@@ -1862,30 +2044,38 @@ class UIManager :
             return None 
 
     def _schedule_cursor_redraw (self ):
-        """Schedule next redraw for cursor animation only when needed."""
+        """Schedule next redraw for cursor animation only when needed - OPTIMIZED."""
         import time 
         current_time =time .time ()
 
 
-        time_in_cycle =current_time %1.2 
+        cursor_cycle_time =self .performance_config .cursor_blink_cycle 
+        time_in_cycle =current_time %cursor_cycle_time 
 
 
-        if time_in_cycle <0.8 :
+        visible_time =cursor_cycle_time *0.67 
 
-            next_redraw =0.8 -time_in_cycle 
+
+        if time_in_cycle <visible_time :
+
+            next_redraw =visible_time -time_in_cycle 
         else :
 
-            next_redraw =1.2 -time_in_cycle 
+            next_redraw =cursor_cycle_time -time_in_cycle 
 
 
-        if next_redraw >0.01 and not hasattr (self ,'_cursor_timer'):
+        if (next_redraw >0.01 and not hasattr (self ,'_cursor_timer')and 
+        self .state .focused_component and 
+        hasattr (self .state .focused_component ,'__class__')and 
+        'TextInput'in str (self .state .focused_component .__class__ )):
+
             self ._cursor_timer =bpy .app .timers .register (
             lambda :self ._cursor_redraw_callback (),
             first_interval =next_redraw 
             )
 
     def _cursor_redraw_callback (self ):
-        """Timer callback for cursor redraw."""
+        """Timer callback for cursor redraw - OPTIMIZED."""
         try :
 
             if hasattr (self ,'_cursor_timer'):
@@ -1898,8 +2088,12 @@ class UIManager :
 
 
             if (self .state .is_enabled and self .state .target_area and 
-            self .state .focused_component and isinstance (self .state .focused_component ,TextInput )):
-                self .state .target_area .tag_redraw ()
+            self .state .focused_component and 
+            hasattr (self .state .focused_component ,'__class__')and 
+            'TextInput'in str (self .state .focused_component .__class__ )):
+
+
+                self ._selective_redraw ()
 
                 return None 
 
@@ -1911,33 +2105,39 @@ class UIManager :
             return None 
 
     def _enforce_ui_settings (self ):
-        """Timer function to enforce UI settings and detect area closure."""
+        """Timer function to enforce UI settings and detect area closure - OPTIMIZED."""
         try :
 
             if not self .state .is_enabled or not self .state .target_area :
-                return 0.1 
+                return self .performance_config .timer_interval 
 
 
             if self ._is_ui_recreation_locked ():
                 logger .debug ("UI enforcement skipped - UI recreation in progress")
-                return 0.1 
+                return self .performance_config .timer_interval 
 
 
             needs_redraw =False 
 
 
-            if self ._should_check_ui_scale ():
+            if self .performance_config .should_check_ui_scale (self ._ui_scale_check_counter ):
                 if self ._check_ui_scale_changes ():
                     self ._handle_ui_scale_change ()
 
-                    return 0.1 
+                    return self .performance_config .timer_interval 
+                self ._ui_scale_check_counter =0 
+            else :
+                self ._ui_scale_check_counter +=1 
 
 
-            if self ._should_check_theme_changes ():
+            if self .performance_config .should_check_theme (self ._theme_check_counter ):
                 if self ._check_theme_changes ():
 
                     self ._refresh_all_component_themes ()
                     needs_redraw =True 
+                self ._theme_check_counter =0 
+            else :
+                self ._theme_check_counter +=1 
 
 
             if not self ._verify_target_area_exists ():
@@ -1946,14 +2146,18 @@ class UIManager :
                 return None 
 
 
-            if self ._enforce_view3d_settings ():
-                needs_redraw =True 
+            if self .performance_config .should_enforce_viewport (self ._viewport_enforce_counter ):
+                if self ._enforce_view3d_settings ():
+                    needs_redraw =True 
+                self ._viewport_enforce_counter =0 
+            else :
+                self ._viewport_enforce_counter +=1 
 
 
             if needs_redraw :
                 self ._request_redraw ()
 
-            return 0.1 
+            return self .performance_config .timer_interval 
 
         except Exception as e :
             logger .error (f"Error enforcing UI settings: {e}")
@@ -1961,20 +2165,16 @@ class UIManager :
             return None 
 
     def _should_check_ui_scale (self )->bool :
-        """Determine if UI scale should be checked this iteration."""
-        self ._ui_scale_check_counter +=1 
-        if self ._ui_scale_check_counter >=1 :
-            self ._ui_scale_check_counter =0 
-            return True 
-        return False 
+        """Determine if UI scale should be checked this iteration - CONFIGURABLE."""
+        return self .performance_config .should_check_ui_scale (self ._ui_scale_check_counter )
 
     def _should_check_theme_changes (self )->bool :
-        """Determine if theme changes should be checked this iteration."""
-        self ._theme_check_counter +=1 
-        if self ._theme_check_counter >=1 :
-            self ._theme_check_counter =0 
-            return True 
-        return False 
+        """Determine if theme changes should be checked this iteration - CONFIGURABLE."""
+        return self .performance_config .should_check_theme (self ._theme_check_counter )
+
+    def _should_enforce_viewport_settings (self )->bool :
+        """Determine if viewport settings should be enforced - CONFIGURABLE."""
+        return self .performance_config .should_enforce_viewport (getattr (self ,'_viewport_enforce_counter',0 ))
 
     def _check_theme_changes (self )->bool :
         """Check if theme has changed."""
@@ -2049,6 +2249,37 @@ class UIManager :
                     space .shading .show_shadows =False 
                     space .shading .show_cavity =False 
                     space .shading .show_object_outline =False 
+                    space .shading .show_specular_highlight =False 
+                    space .shading .show_backface_culling =True 
+                    space .shading .use_world_space_lighting =False 
+
+
+                    if hasattr (space .shading ,'show_cavity_edge'):
+                        space .shading .show_cavity_edge =False 
+                    if hasattr (space .shading ,'show_cavity_ridge'):
+                        space .shading .show_cavity_ridge =False 
+                    if hasattr (space .shading ,'show_cavity_valley'):
+                        space .shading .show_cavity_valley =False 
+
+
+                    if hasattr (space ,'show_region_tool_header'):
+                        space .show_region_tool_header =False 
+                    if hasattr (space ,'show_region_asset_shelf'):
+                        space .show_region_asset_shelf =False 
+
+
+                    if space .shading .type not in ['SOLID']:
+
+                        pass 
+
+
+                    space .shading .use_dof =False 
+                    if hasattr (space .shading ,'use_world_space_lighting'):
+                        space .shading .use_world_space_lighting =False 
+
+
+                    space .clip_start =max (space .clip_start ,0.1 )
+                    space .clip_end =min (space .clip_end ,100.0 )
 
                     settings_applied =True 
                     break 
@@ -2060,12 +2291,29 @@ class UIManager :
             return False 
 
     def _request_redraw (self ):
-        """Centralized method to request area redraw."""
+        """Centralized method to request selective area redraw - UI only when possible."""
         try :
             if self .state .target_area :
-                self .state .target_area .tag_redraw ()
+
+                self ._selective_redraw ()
         except Exception as e :
             logger .error (f"Error requesting redraw: {e}")
+
+    def _selective_redraw (self ):
+        """Implement selective redraw to minimize scene rerendering."""
+        try :
+
+            if self .state .target_area :
+
+                if hasattr (self .state .target_area ,'tag_redraw'):
+
+                    self .state .target_area .tag_redraw ()
+
+        except Exception as e :
+            logger .error (f"Error in selective redraw: {e}")
+
+            if self .state .target_area :
+                self .state .target_area .tag_redraw ()
 
     def _handle_enforcement_error (self ):
         """Handle errors that occur during UI enforcement."""
@@ -2104,6 +2352,13 @@ class UIManager :
         try :
 
             if not self .state .is_enabled or not self .state .target_area :
+                return 'PASS_THROUGH'
+
+
+            if (hasattr (self ,'_original_workspace')and hasattr (self ,'_original_screen')and 
+            (bpy .context .window .workspace !=self ._original_workspace or 
+            bpy .context .window .screen !=self ._original_screen )):
+
                 return 'PASS_THROUGH'
 
 
@@ -2260,6 +2515,13 @@ class UIManager :
         """Handle keyboard events - pass all to focused component when available."""
         try :
             if not self .state .is_enabled or not self .state .target_area :
+                return 'PASS_THROUGH'
+
+
+            if (hasattr (self ,'_original_workspace')and hasattr (self ,'_original_screen')and 
+            (bpy .context .window .workspace !=self ._original_workspace or 
+            bpy .context .window .screen !=self ._original_screen )):
+
                 return 'PASS_THROUGH'
 
 
@@ -2984,6 +3246,215 @@ class UIManager :
                 logger .debug (f"Restored unsent text after UI change for chat: {current_chat_id}")
         except Exception as e :
             logger .debug (f"Could not restore unsent text: {e}")
+
+    def _show_render_progress (self ,render_state :Dict [str ,Any ]):
+        """Show render progress UI."""
+        try :
+            logger .info (f"Showing render progress for render ID: {render_state.get('render_id', 'unknown')}")
+
+
+            self ._render_progress_state =render_state 
+
+
+            if not self ._render_progress_component :
+                self ._render_progress_component =self ._create_render_progress_component (render_state )
+            else :
+                self ._update_render_progress_component (render_state )
+
+
+            if self ._render_progress_timer is None :
+                self ._render_progress_timer =bpy .app .timers .register (
+                self ._update_render_progress ,
+                first_interval =0.1 
+                )
+
+
+            if self .state .target_area :
+                self .state .target_area .tag_redraw ()
+
+        except Exception as e :
+            logger .error (f"Error showing render progress: {e}")
+
+    def _update_render_status (self ,render_state :Dict [str ,Any ]):
+        """Update render status in the UI."""
+        try :
+            logger .info (f"Updating render status: {render_state.get('status', 'unknown')}")
+
+
+            self ._render_progress_state =render_state 
+
+
+            if self ._render_progress_component :
+                self ._update_render_progress_component (render_state )
+
+
+            if render_state .get ('status')in ['completed','error','cancelled']:
+                if self ._render_progress_timer :
+                    try :
+                        bpy .app .timers .unregister (self ._render_progress_timer )
+                    except :
+                        pass 
+                    self ._render_progress_timer =None 
+
+
+                def cleanup_progress_ui ():
+                    self ._cleanup_render_progress_ui ()
+                    return None 
+
+                bpy .app .timers .register (cleanup_progress_ui ,first_interval =3.0 )
+
+
+            if self .state .target_area :
+                self .state .target_area .tag_redraw ()
+
+        except Exception as e :
+            logger .error (f"Error updating render status: {e}")
+
+    def _create_render_progress_component (self ,render_state :Dict [str ,Any ]):
+        """Create a render progress component."""
+        try :
+
+            from .components .render_progress import RenderProgressComponent 
+
+
+            component =RenderProgressComponent (
+            render_state =render_state ,
+            x =10 ,y =self .state .viewport_height -100 ,
+            width =400 ,height =80 
+            )
+
+
+            self .state .add_component (component )
+
+            return component 
+
+        except Exception as e :
+            logger .error (f"Error creating render progress component: {e}")
+            return None 
+
+    def _update_render_progress_component (self ,render_state :Dict [str ,Any ]):
+        """Update the render progress component."""
+        try :
+            if not self ._render_progress_component :
+                return 
+
+
+            if hasattr (self ._render_progress_component ,'update_render_state'):
+                self ._render_progress_component .update_render_state (render_state )
+            else :
+
+                status =render_state .get ('status','unknown')
+                render_id =render_state .get ('render_id','unknown')
+
+                if status =='starting':
+                    message ="Starting render..."
+                elif status =='rendering':
+                    elapsed =time .time ()-render_state .get ('start_time',time .time ())
+                    message =f"Rendering... (ID: {render_id}, {elapsed:.1f}s)"
+                elif status =='completed':
+                    message ="Render completed! Check the result below."
+                elif status =='error':
+                    error =render_state .get ('error','Unknown error')
+                    message =f"Render failed: {error}"
+                elif status =='cancelled':
+                    message ="Render cancelled."
+                else :
+                    message =f"Render status: {status}"
+
+
+                if hasattr (self ._render_progress_component ,'text'):
+                    self ._render_progress_component .text =message 
+
+        except Exception as e :
+            logger .error (f"Error updating render progress component: {e}")
+
+    def _update_render_progress (self ):
+        """Timer callback to update render progress."""
+        try :
+            if not self ._render_progress_state or not self ._render_progress_component :
+                return None 
+
+
+            self ._update_render_progress_component (self ._render_progress_state )
+
+
+            if self .state .target_area :
+                self .state .target_area .tag_redraw ()
+
+
+            if self ._render_progress_state .get ('status')in ['starting','rendering']:
+                return 0.5 
+            else :
+                return None 
+
+        except Exception as e :
+            logger .error (f"Error updating render progress: {e}")
+            return None 
+
+    def _cleanup_render_progress_ui (self ):
+        """Clean up render progress UI components."""
+        try :
+            if self ._render_progress_component :
+
+                self .state .remove_component (self ._render_progress_component )
+                self ._render_progress_component =None 
+
+
+            self ._render_progress_state =None 
+
+
+            if self .state .target_area :
+                self .state .target_area .tag_redraw ()
+
+        except Exception as e :
+            logger .error (f"Error cleaning up render progress UI: {e}")
+
+    def cancel_current_render (self ):
+        """Cancel the current render if one is active."""
+        try :
+            if self ._render_progress_state and self ._render_progress_state .get ('can_cancel',False ):
+                render_id =self ._render_progress_state .get ('render_id')
+                if render_id :
+
+                    from ...engine .render_manager import render_manager 
+                    success =render_manager .cancel_render (render_id )
+
+                    if success :
+                        logger .info (f"Cancelled render: {render_id}")
+
+                        self ._render_progress_state ['status']='cancelled'
+                        self ._render_progress_state ['can_cancel']=False 
+                        self ._update_render_status (self ._render_progress_state )
+                    else :
+                        logger .error (f"Failed to cancel render: {render_id}")
+
+        except Exception as e :
+            logger .error (f"Error cancelling render: {e}")
+
+    def _send_render_status_block (self ,status_text :str ):
+        """Send render status as a markdown block to the current AI component."""
+        try :
+            if self ._current_ai_component and hasattr (self ._current_ai_component ,'set_markdown'):
+
+                current_content =self ._current_ai_component .get_message ()
+
+
+                if current_content :
+                    new_content =current_content +"\n\n"+status_text 
+                else :
+                    new_content =status_text 
+
+
+                self ._current_ai_component .set_markdown (new_content )
+
+
+                if self .state .target_area :
+                    self .state .target_area .tag_redraw ()
+
+                logger .info (f"Sent render status block: {status_text}")
+
+        except Exception as e :
+            logger .error (f"Error sending render status block: {e}")
 
 
 

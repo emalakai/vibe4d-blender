@@ -17,6 +17,10 @@ from .error_message import ErrorMessageComponent
 from .image import ImageComponent ,ImageFit ,ImagePosition 
 from .container import Container 
 from .component_registry import component_registry ,ComponentRegistry ,ComponentState 
+from .navigator import Navigator 
+from .scrollview import ScrollView 
+from .markdown_message import MarkdownMessageComponent 
+from .toggle_button import ToggleButton 
 
 __all__ =[
 'UIComponent',
@@ -38,4 +42,8 @@ __all__ =[
 'component_registry',
 'ComponentRegistry',
 'ComponentState',
+'Navigator',
+'ScrollView',
+'MarkdownMessageComponent',
+'ToggleButton'
 ]

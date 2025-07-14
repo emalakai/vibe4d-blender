@@ -54,7 +54,7 @@ class RenderResultManager :
     on_complete :Optional [Callable [[Dict [str ,Any ]],None ]]=None ,
     on_error :Optional [Callable [[str ],None ]]=None ,
     output_path :Optional [str ]=None ,
-    use_temp_file :bool =True 
+    use_temp_file :bool =False 
     )->str :
         """
         Start a render operation with completion callback.
@@ -102,6 +102,20 @@ class RenderResultManager :
                 return ""
 
 
+            logger .info ("Checking for existing render result...")
+            existing_result =self ._get_existing_render_result (scene ,scene .camera )
+            if existing_result :
+                logger .info ("Found existing render result, returning it immediately")
+
+                existing_result ['render_id']=render_id 
+                if on_complete :
+                    on_complete (existing_result )
+                return render_id 
+
+
+            logger .info ("No existing render result found, starting new render")
+
+
             if use_temp_file or not output_path :
                 temp_file =tempfile .NamedTemporaryFile (suffix ='.png',delete =False )
                 output_path =temp_file .name 
@@ -118,7 +132,8 @@ class RenderResultManager :
             'on_complete':on_complete ,
             'on_error':on_error ,
             'start_time':time .time (),
-            'status':'starting'
+            'status':'starting',
+            'user_visible':True 
             }
 
             self .active_renders [render_id ]=render_info 
@@ -136,13 +151,20 @@ class RenderResultManager :
             render_info ['original_file_format']=original_file_format 
 
 
-            render .filepath =output_path 
-            render .image_settings .file_format ='PNG'
+            if use_temp_file or not output_path :
+                render .filepath =output_path 
+                render .image_settings .file_format ='PNG'
+            else :
+
+                render .filepath =output_path 
+                render .image_settings .file_format ='PNG'
+
             render_info ['status']='rendering'
 
 
-            logger .info (f"Starting render {render_id} to {output_path}")
-            bpy .ops .render .render (write_still =True )
+
+            logger .info (f"Starting user-visible render {render_id} to {output_path}")
+            bpy .ops .render .render ('INVOKE_DEFAULT',animation =False ,write_still =False )
 
             return render_id 
 
@@ -235,12 +257,27 @@ class RenderResultManager :
 
 
             if not os .path .exists (output_path ):
-                error_msg ="Render completed but output file not found"
-                logger .error (error_msg )
-                if render_info ['on_error']:
-                    render_info ['on_error'](error_msg )
-                self ._cleanup_render (completed_render )
-                return 
+
+                if hasattr (scene ,'render')and hasattr (scene .render ,'result'):
+                    render_result =scene .render .result 
+                    if render_result and hasattr (render_result ,'save_render'):
+
+                        render_result .save_render (output_path )
+                        logger .info (f"Saved render result to {output_path}")
+                    else :
+                        error_msg ="Render completed but no render result available"
+                        logger .error (error_msg )
+                        if render_info ['on_error']:
+                            render_info ['on_error'](error_msg )
+                        self ._cleanup_render (completed_render )
+                        return 
+                else :
+                    error_msg ="Render completed but output file not found"
+                    logger .error (error_msg )
+                    if render_info ['on_error']:
+                        render_info ['on_error'](error_msg )
+                    self ._cleanup_render (completed_render )
+                    return 
 
 
             result_data =self ._process_render_result (completed_render ,output_path )
@@ -297,6 +334,77 @@ class RenderResultManager :
 
         except Exception as e :
             logger .error (f"Error in render write handler: {str(e)}")
+
+    def _get_existing_render_result (self ,scene ,camera )->Optional [dict ]:
+        """
+        Try to harvest the most recent "Render Result" image and convert it into
+        the same dictionary structure returned by :meth:`render_sync`.
+
+        Parameters
+        ----------
+        scene : bpy.types.Scene | None
+            Scene that would otherwise be rendered (unused here, kept for parity).
+        camera : bpy.types.Object | None
+            Camera that would otherwise be rendered (unused here, kept for parity).
+
+        Returns
+        -------
+        dict | None
+            A dict compatible with _process_render_result(), or *None* if no
+            usable cached frame exists.
+        """
+
+        tmp =tempfile .NamedTemporaryFile (suffix =".png",delete =False )
+        output_path =tmp .name 
+        tmp .close ()
+
+        try :
+
+            for img in bpy .data .images :
+
+                if img .type =='RENDER_RESULT':
+                    try :
+                        img .filepath_raw =output_path 
+                        img .file_format ='PNG'
+                        img .save ()
+                        logger .debug (f"Saved render result: {img.name} to {output_path}")
+                        break 
+                    except Exception as e :
+                        logger .warning (f"Could not save {img.name}: {e}")
+                        continue 
+            else :
+                logger .debug ("No render result image could be saved.")
+                return None 
+
+
+            existing_id =f"existing_{int(time.time() * 1000)}"
+            render_info ={
+            'render_id':existing_id ,
+            'scene':scene ,
+            'camera':camera ,
+            'output_path':output_path ,
+            'start_time':time .time ()-0.1 ,
+            'status':'complete'
+            }
+
+
+            self .active_renders [existing_id ]=render_info 
+
+            try :
+
+                result =self ._process_render_result (existing_id ,output_path )
+                return result 
+            finally :
+
+                if existing_id in self .active_renders :
+                    del self .active_renders [existing_id ]
+
+        finally :
+
+            try :
+                os .unlink (output_path )
+            except Exception :
+                pass 
 
     def _process_render_result (self ,render_id :str ,output_path :str )->Optional [Dict [str ,Any ]]:
         """
@@ -400,6 +508,9 @@ class RenderResultManager :
         except Exception as e :
             logger .error (f"Error cleaning up render {render_id}: {str(e)}")
 
+
+
+
     def render_sync (
     self ,
     scene_name :Optional [str ]=None ,
@@ -407,18 +518,15 @@ class RenderResultManager :
     output_path :Optional [str ]=None 
     )->Dict [str ,Any ]:
         """
-        Synchronous render operation (blocks until complete).
+        Check for existing render result without performing new renders.
         
         Args:
-            scene_name: Name of scene to render (None for current)
-            camera_name: Name of camera to use (None for scene camera)
-            output_path: Custom output path (None for temp file)
+            scene_name: Name of scene to check (None for current)
+            camera_name: Name of camera to check (None for scene camera)
+            output_path: Custom output path (unused in check-only mode)
             
         Returns:
-            Dictionary with render result data
-            
-        Raises:
-            RuntimeError: If render fails
+            Dictionary with render result data or message if no result found
         """
         try :
 
@@ -439,96 +547,22 @@ class RenderResultManager :
                 raise RuntimeError ("No active camera found in scene")
 
 
-            use_temp_file =not output_path 
-            if use_temp_file :
-                temp_file =tempfile .NamedTemporaryFile (suffix ='.png',delete =False )
-                output_path =temp_file .name 
-                temp_file .close ()
+            logger .info ("Checking for existing render result...")
+            existing_result =self ._get_existing_render_result (scene ,scene .camera )
+            if existing_result :
+                logger .info ("Found existing render result, returning it")
+                return existing_result 
 
 
-            render =scene .render 
-            original_filepath =render .filepath 
-            original_file_format =render .image_settings .file_format 
-
-            try :
-
-                render .filepath =output_path 
-                render .image_settings .file_format ='PNG'
-
-
-                logger .info (f"Starting synchronous render to {output_path}")
-                start_time =time .time ()
-                bpy .ops .render .render (write_still =True )
-
-
-                if not os .path .exists (output_path ):
-                    raise RuntimeError ("Render completed but output file was not created")
-
-
-                result_data =self ._create_sync_result (scene ,output_path ,start_time )
-
-                logger .info (f"Synchronous render completed: {result_data['width']}x{result_data['height']}")
-                return result_data 
-
-            finally :
-
-                render .filepath =original_filepath 
-                render .image_settings .file_format =original_file_format 
-
-
-                if original_camera :
-                    scene .camera =original_camera 
-
-
-                if use_temp_file and os .path .exists (output_path ):
-                    try :
-                        os .unlink (output_path )
-                    except Exception as e :
-                        logger .warning (f"Failed to clean up temporary file: {e}")
+            logger .info ("No existing render result found")
+            return {
+            "message":"No render result found. Ask user if you should render image with execute tool or they can do that themselves"
+            }
 
         except Exception as e :
-            error_msg =f"Synchronous render failed: {str(e)}"
+            error_msg =f"Failed to check for render result: {str(e)}"
             logger .error (error_msg )
             raise RuntimeError (error_msg )
-
-    def _create_sync_result (self ,scene ,output_path :str ,start_time :float )->Dict [str ,Any ]:
-        """Create result data for synchronous render."""
-
-        file_size =os .path .getsize (output_path )
-
-
-        with open (output_path ,'rb')as f :
-            image_data =f .read ()
-
-
-        width ,height =scene .render .resolution_x ,scene .render .resolution_y 
-        try :
-            from PIL import Image 
-            with Image .open (output_path )as img :
-                width ,height =img .size 
-        except ImportError :
-            percentage =scene .render .resolution_percentage /100.0 
-            width =int (scene .render .resolution_x *percentage )
-            height =int (scene .render .resolution_y *percentage )
-
-
-        base64_data =base64 .b64encode (image_data ).decode ('utf-8')
-        data_uri =f"data:image/png;base64,{base64_data}"
-
-        return {
-        "data_uri":data_uri ,
-        "width":width ,
-        "height":height ,
-        "render_resolution":[scene .render .resolution_x ,scene .render .resolution_y ],
-        "render_percentage":scene .render .resolution_percentage ,
-        "size_bytes":file_size ,
-        "format":"PNG",
-        "render_engine":scene .render .engine ,
-        "camera_name":scene .camera .name ,
-        "scene_name":scene .name ,
-        "frame":scene .frame_current ,
-        "render_time":time .time ()-start_time 
-        }
 
     def cleanup (self ):
         """Clean up all resources."""
