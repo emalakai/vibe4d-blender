@@ -1,6 +1,8 @@
 # Vibe4D for Blender
 
-**Ultimate Blender AI Assistant**
+**The Ultimate Blender AI Assistant**
+
+It adds a custom UI panel in the left with the AI chat. (UI is drawing with gpu module)
 
 ![prompts](docs/media/main.gif)
 
@@ -22,7 +24,6 @@
 ![customize](docs/media/5.gif)
 
 
-
 ## Getting Started
 ![auth](docs/media/6.gif)
 
@@ -38,6 +39,8 @@
 
 > Requires **Blender 4.4** or later
 
+## Use of local models
+TODO
 
 ## Contact
 
