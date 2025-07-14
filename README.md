@@ -2,6 +2,8 @@
 
 **The Ultimate Blender AI Assistant**
 
+It adds a custom UI panel in the left with the AI chat. (UI is drawing with gpu module)
+
 ![prompts](docs/media/main.gif)
 
 ## Features
